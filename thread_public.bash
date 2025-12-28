@@ -1,4 +1,4 @@
-#! /bin/bash
+#! /bin/echo This Library should be sourced by a BASH script:
 # Create Thread Public read-write variables in bash
 # This file MUST BE INCLUDED IN THE MAIN THREAD
 # Make sure the env don't have $THREAD_PUBLIC_INCLUDED by default, since having it will prevent the lib from loading

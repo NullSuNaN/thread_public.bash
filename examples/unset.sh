@@ -1,5 +1,13 @@
 #! /bin/bash
-source ../thread_public.bash
+
+dir="${0%/*}"
+[ "$dir" ] || {
+  echo 'Unable to locate the executable file!'
+  exit 1
+}
+trap '' SIGINT
+source "$dir"/../thread_public.bash
+
 tpubCreate 10 11 main
 trap tpubReleaseAll EXIT
 

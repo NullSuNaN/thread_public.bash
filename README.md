@@ -34,7 +34,7 @@ source ./thread_public.bash
 
 The host thread may output some error message to `stderr`(`&2`) when an illegal expression is sent to it, you can use `2>/dev/null` when doing `tpubCreate`.
 
-If you discovered a way to crash the host thread via the following APIs, please [report it](https://github.com/NullSuNaN/thread_public.bash/issues/new?title=Host%20Thread%20Crash%20With%20PUT_IT_HERE)
+If you discovered a way to crash the host thread via the following APIs, please [report it](issues/new?title=Host%20Thread%20Crash%20With%20PUT_IT_HERE)
 
 ### `tpubCreate <fd1> <fd2> [name] [tmpfile]`
 
