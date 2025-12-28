@@ -32,6 +32,10 @@ source ./thread_public.bash
 
 ## API Reference
 
+The host thread may output some error message to `stderr`(`&2`) when an illegal expression is sent to it, you can use `2>/dev/null` when doing `tpubCreate`.
+
+If you discovered a way to crash the host thread via the following APIs, please [report it](https://github.com/NullSuNaN/thread_public.bash/issues/new?title=Host%20Thread%20Crash%20With%20PUT_IT_HERE)
+
 ### `tpubCreate <fd1> <fd2> [name] [tmpfile]`
 
 Create a new thread-public variable container.
@@ -42,10 +46,12 @@ tpubCreate 10 11 main
 
 **Arguments**
 
-* `fd1`: lock stream FD
-* `fd2`: data stream FD
+* `fd1`: first FD to use(lock stream)
+* `fd2`: second FD to use(data stream)
 * `name`: container name (default: `main`)
 * `tmpfile`: FIFO temporary file (optional)
+
+The FDs should not be used!
 
 **Returns**
 
@@ -125,10 +131,6 @@ tpubRelease main
 * Signals host thread to exit
 * Closes file descriptors
 * Frees all shared variables
-
-> ⚠️ Must be called for EVERY CONTAINER CREATED at the end, 
-  otherwise the host thread will continue running even the
-  program ended!
 
 ---
 

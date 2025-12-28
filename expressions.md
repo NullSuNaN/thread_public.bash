@@ -11,7 +11,7 @@ Really easy to use, but not really safe, do tests before using!
 2. [**SET expression**](#set-expressions)(with a warning)
 3. [**Array creation expression**](#array-creation)(with a warning)
 4. [**Literal passthrough**](#literal-passthrough)
-5. [**Preserved expressions**](#literal-passthrough)
+5. [**Preserved expressions**](#preserved-expressions)
 6. [***Example***](#example)
 
 If an **illegal expression** is detected, `tpubExp`:
