@@ -97,6 +97,8 @@
     done
   }
   _tpubHostThread() {
+    trap '' SIGINT
+    trap '' SIGABRT
     local fd1="$1" fd2="$2"
     IFS=''
     while read -rN 1 lock <&"$fd1";do

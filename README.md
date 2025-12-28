@@ -191,23 +191,4 @@ tpubReleaseAll
 ## Implementation Notes
 
 * Uses `mkfifo` + bidirectional FD reopening
-* Host thread owns all variables
-* Communication is binary and order-preserving
 * Compatible with Bash 5+
-
----
-
-## Limitations
-
-* Requires **two FDs per container**
-* Containers must be created **before threads**
-* No garbage collection if host thread is force-killed
-* Performance is bounded by FIFO IPC speed
-
----
-
-## Safety & Portability
-
-* Linux / POSIX systems
-* Not compatible with `dash` or `sh`
-* Requires `mkfifo`
