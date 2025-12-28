@@ -416,3 +416,8 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Sth I may create as a tmp file
+gdiff.txt
+tmp
+a.*
