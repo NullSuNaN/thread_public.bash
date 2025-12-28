@@ -1,0 +1,312 @@
+diff --git a/README.md b/README.md
+index 96bec5b..d864758 100644
+--- a/README.md
++++ b/README.md
+@@ -123,10 +123,6 @@ tpubRelease main
+ 
+ ---
+ 
+-Here is the **section to add** to your existing `README.md`. You can paste it under the API Reference (after `tpubRelease` is a good place).
+-
+----
+-
+ ## `tpubReleaseAll`
+ 
+ Release **all thread-public containers** created in the current process.
+diff --git a/thread_public.bash b/thread_public.bash
+index 3360f1e..d147e7e 100755
+--- a/thread_public.bash
++++ b/thread_public.bash
+@@ -116,11 +116,19 @@
+             declare -ng "curVar=tpubHostVar_$vName"
+             local res=
+             case "$getTarget" in
+-              S) res="${#curVar}" ;;
++              S) # There is a bug of bash itself so I cannot just use ${#curVar}
++                res="$curVar"
++                res="${#res}"
++                ;;
++              L) res="${#curVar[@]}" ;;
+               A)
+                 IFS=' '
+                 res="${curVar[*]}"
+                 IFS='';;
++              K)
++                IFS=' '
++                res="${!curVar[*]}"
++                IFS='';;
+               *) res="$curVar" ;;
+             esac
+             echo -n "R$tid $res" >&"$fd2"
+@@ -137,10 +145,12 @@
+             case "$vType" in
+               v) curVar="$vVar";;
+               a)
+-                declare -Ag "tpubHostVar_$vName"'=()'
++                declare -ag "tpubHostVar_$vName"'=()'
+                 curVar[0]="$vVar";;
+-              A) 
++              A)
+                 declare -Ag "tpubHostVar_$vName"'=()';;
++              U)
++                unset "tpubHostVar_$vName";;
+             esac
+             # echo  "Host: $vName set to $vType $curVar" #DEV_OUTPUT_STREAM
+             echo -n "r$tid" >&"$fd2"
+@@ -168,7 +178,7 @@
+   ## tpubGet <container> <var> [<type>]
+   #  @arg 1 - container name, like `main`
+   #  @arg 2 - var name
+-  #  @arg 3 - (Optional, default: '')get type, S for size(${#a}), A for all(IFS=' ';${a[*]}}), (EMPTY) for value($a)
++  #  @arg 3 - (Optional, default: '')get type, S for size(${#a}), L for length(${#a[@]}), A for all(IFS=' ';${a[*]}}), N for names(IFS=' ';${!a[@]}), (EMPTY) for value($a)
+   #  Output the value
+   #  @return 0 when success
+   #  @return 1 illegal arguments
+@@ -217,7 +227,7 @@
+             [ "$tid" == "$BASHPID" ] && {
+               echo -n "$lock" >&"$fd1"
+               # echo '[LOCK]' -n "$lock" #DEV_OUTPUT_STREAM
+-              echo "$res"
++              echo -n "$res"
+               IFS="$lIFS"
+               return 0
+               true
+@@ -254,7 +264,7 @@
+   #  @arg 1 - container name, like `main`
+   #  @arg 2 - var name
+   #  @arg 3 - value to set
+-  #  @arg 4 - (Optional, can be [vaA])v: normal, a: array, A: map
++  #  @arg 4 - (Optional, can be [vaA])v: normal, a: array, A: map, u:unset
+   #  Output the value
+   #  @return 0 when success
+   #  @return 1 illegal arguments
+@@ -264,7 +274,7 @@
+     [ "$fd1" ] || return 2
+     local fd2="${tpubMapFd2["f$1"]}"
+     local var="$2" value="$3" type="${4-v}"
+-    [[ "$type" != [vaA] ]] && return 1
++    [[ "$type" != [vaAU] ]] && return 1
+     local lock=
+     while read -rN 1 lock <&"$fd1";do
+       [ "$lock" != h ] && break
+@@ -337,4 +347,219 @@
+     IFS="$lIFS"
+     return 2
+   }
++  ## tpubExp <container> <expr> [expr ...]
++  #  Expression-style interface for thread-public variables.
++  #
++  #  This function processes <expr> arguments strictly left-to-right.
++  #  Each argument is interpreted as one of:
++  #
++  #    • GET expression
++  #    • SET expression
++  #    • Array creation syntax
++  #    • Pass-through literal output
++  #
++  #  ─────────────────────────────────────────────────────────────
++  #  GET EXPRESSIONS
++  #  ─────────────────────────────────────────────────────────────
++  #
++  #  An expression is treated as GET if it starts with '$' or '@'.
++  #
++  #    $var
++  #    ${var}
++  #    ${var[index]}
++  #
++  #      → tpubGet <container> <var>
++  #
++  #    ${var[@]}   ${var[*]}
++  #
++  #      → tpubGet <container> <var> A
++  #
++  #    ${#var}     ${#var[@]}   ${#var[*]}
++  #
++  #      → tpubGet <container> <var> S
++  #
++  #  GET results are written to stdout in argument order.
++  #
++  #  ─────────────────────────────────────────────────────────────
++  #  SET EXPRESSIONS
++  #  ─────────────────────────────────────────────────────────────
++  #
++  #    var=value
++  #
++  #      → tpubSet <container> <var> <value>
++  #
++  #  The value is the substring after the first '=' and is taken
++  #  verbatim. No shell evaluation or globbing is performed.
++  #
++  #  ─────────────────────────────────────────────────────────────
++  #  ARRAY CREATION SYNTAX
++  #  ─────────────────────────────────────────────────────────────
++  #
++  #    var=(
++  #      elem1
++  #      elem2
++  #      ...
++  #    )
++  #    [NO MORE ARGS ALLOWED]
++  #
++  #  Note:
++  #    Bash would treat `( ... )` as a code block, so you need to use:
++  #      var='(' ... ')'
++  #
++  #  Rules (STRICT):
++  #    • Start token MUST be exactly "var=(".
++  #    • After entering array mode:
++  #        - Every following argument is an element.
++  #        - The array NEVER ends early.
++  #        - The array ends ONLY with the FINAL argument ")",
++  #        -   or actually, if you don't add that ")", it will function normally
++  #        -   except the return value will be 1.
++  #    • A lone ")" is a valid element unless it is the final argument.
++  #    • No other syntax is allowed while in array mode.
++  #
++  #  Implementation:
++  #    - Array is first initialized empty.
++  #    - Each element is appended via:
++  #        tpubSet <container> <var> <element> a
++  #
++  #  ─────────────────────────────────────────────────────────────
++  #  PASS-THROUGH OUTPUT
++  #  ─────────────────────────────────────────────────────────────
++  #
++  #  Any argument that is neither GET nor SET nor array syntax
++  #  is written directly to stdout.
++  #
++  #    ''   → outputs a literal NUL byte (\0)
++  #    other → outputs the argument verbatim
++  #
++  #  ─────────────────────────────────────────────────────────────
++  #  OUTPUT
++  #  ─────────────────────────────────────────────────────────────
++  #
++  #    • GET expressions output their result
++  #    • SET expressions output nothing
++  #    • Array creation outputs nothing
++  #    • Pass-through arguments output directly
++  #
++  #  ─────────────────────────────────────────────────────────────
++  #  RETURN VALUE
++  #  ─────────────────────────────────────────────────────────────
++  #
++  #    0  Success
++  #    1  Illegal expression or syntax error
++  #    2  Container does not exist (from tpubGet / tpubSet)
++  #
++  #  ─────────────────────────────────────────────────────────────
++  true IMPORTANT
++  #  ─────────────────────────────────────────────────────────────
++  #
++  #  Make sure the whole var name don't contain a '=' when using the SET expression!
++  #  a '=' can be contained by a map key("var[sth=sth]")!
++  #
++  #  Any expression exactly matching "var=(" ALWAYS starts array
++  #  creation. To set a literal "(" value, use:
++  #
++  #    tpubSet $container $var '('
++  #
++  tpubExp() {
++    local container="$1" argc="$#"
++    shift || return 1
++    argc=$((argc-1))
++
++    local arg exp var idx val
++    local in_array=0 array_idx
++    local array_var=
++
++    for arg; do
++      ((--argc))
++      # ================= ARRAY MODE =================
++      if (( in_array )); then
++        # the final argument
++        if [[ "$argc" == 0 && "$arg" == ')' ]]; then
++          in_array=0
++          array_var=
++          continue
++        fi
++
++        # Every argument is an element
++        tpubSet "$container" "$array_var[$array_idx]" "$arg" || return $?
++        ((++array_idx))
++        continue
++      fi
++
++      # ================= NORMAL MODE =================
++      case "$arg" in
++        # ---------- ARRAY START ----------
++        *=\()
++          # must be exactly: var=(
++          [[ "$arg" == *"=(" && "$arg" != *")"* ]] || return 1
++          array_var="${arg%%=*}"
++          in_array=1 array_idx=0
++          # initialize empty array
++          tpubSet "$container" "$array_var" "" a || return $?
++          ;;
++
++        # ---------- GET ----------
++        \$*|@*)
++          exp="${arg:1}"
++
++          # ${...}
++          if [[ "$exp" == \{*\} ]]; then
++            exp="${exp:1:-1}"
++          fi
++
++          # Size query
++          if [[ "$exp" == \#* ]]; then
++            var="${exp#\#}"
++            if [[ "$exp" == *"["[@'*']"]" ]]; then
++              tpubGet "$container" "${var%%'['*']'}" L || return $?
++            else
++              tpubGet "$container" "$var" S || return $?
++            fi
++            continue
++          fi
++
++          # Indexed / expansion
++          if [[ "$exp" == *"["*"]" ]]; then
++            var="${exp%%[*}"
++            idx="${exp#*[}"
++            idx="${idx%]}"
++
++            case "$idx" in
++              @|\*)
++                tpubGet "$container" "$var" A || return $?
++                ;;
++              *)
++                val="$(tpubGet "$container" "$var[$idx]")" || return $?
++                echo -n "$val"
++                ;;
++            esac
++          else
++            tpubGet "$container" "$exp" || return $?
++          fi
++          ;;
++
++        # ---------- SET ----------
++        *=*)
++          var="${arg%%=*}"
++          val="${arg#*=}"
++          tpubSet "$container" "$var" "$val" || return $?
++          ;;
++
++        # ---------- PASS-THROUGH ----------
++        '')
++          # literal NUL
++          echo -ne '\0'
++          ;;
++        *)
++          echo -n "$arg"
++          ;;
++      esac
++    done
++
++    # Unclosed array is illegal
++    (( in_array )) && return 1
++
++    return 0
++  }
+ }
+\ No newline at end of file

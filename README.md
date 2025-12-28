@@ -102,6 +102,15 @@ tpubSet main counter 42
 * `v` (default): scalar
 * `a`: array
 * `A`: associative map
+* `U`: unset
+
+---
+
+### `tpubExp <container> <exp> [<exp> ...]`
+
+Really easy to use, but not really safe, do tests before using!
+
+See [tpub Expression Document](expressions.md)
 
 ---
 
@@ -120,10 +129,6 @@ tpubRelease main
 > ⚠️ Must be called for EVERY CONTAINER CREATED at the end, 
   otherwise the host thread will continue running even the
   program ended!
-
----
-
-Here is the **section to add** to your existing `README.md`. You can paste it under the API Reference (after `tpubRelease` is a good place).
 
 ---
 
