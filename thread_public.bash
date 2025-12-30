@@ -11,6 +11,9 @@
   # S$tid $vName\0$vType $vVal\0 - a c2s SET request
   # R$tid $vVal\0 - a s2c GET result
   # r$tid\0 - a s2c SET result
+  # l$tid $mode $var\0 - a c2s LOCK request
+  # L$tid $suc\0 - a s2c LOCK result
+  # W$tid\0 - a s2c WAIT result
   # Q\0 - a c2all RELEASE request
   declare -Ag tpubMapFd1= tpubMapFd2=
   ## tpubCreate <fd1> <fd2> [<name>] [<tempFile>]
@@ -78,7 +81,6 @@
     unset tpubMapFd1["f$name"] tpubMapFd2["f$name"]
     read -rN 1 <&"$fd1"
     echo -ne 'Q\0' >&"$fd2"
-    # echo  'Q\0' #DEV_OUTPUT_STREAM
     echo A >&"$fd1"
     local fd=
     for fd in "$fd1" "$fd2";do
@@ -96,18 +98,54 @@
       tpubRelease "${i:1}"
     done
   }
+  ## _tpubIgnore <dataFd> <op>
+  #  Ignore a message and send it back
+  #  IFS='' is required
+  _tpubIgnore() {
+    local fd="$1" op="$2" cl
+    case "$op" in
+      S)
+        read -rd $'\0' cl
+        echo -n "$op$cl" >&"$fd2"
+        echo -ne '\0' >&"$fd2"
+        read -rd $'\0' cl
+        echo -n "$cl" >&"$fd2"
+        echo -ne '\0' >&"$fd2"
+        ;;
+      *)
+        read -rd $'\0' cl
+        echo -n "$op$cl" >&"$fd2"
+        echo -ne '\0' >&"$fd2"
+        ;;
+    esac <&"$fd2"
+  }
+  ## _tpubReadLock <lockFd> <refuseLockType>
+  #  IFS='' is required
+  #  Fail if the fd is down
+  _tpubReadLock() {
+    local fd1="$1" lt="$2" lock
+    while read -rN 1 lock <&"$fd1";do
+      [ "$lock" != "$lt" ] && return 0
+      echo -n "$lt" >&"$fd1"
+      sleep 0.05
+      continue
+    done
+    return 1
+  }
+  _tpubHostCheckLock() {
+    local vName="${1%%'['*}" tid="$2"
+    [ -v locks[l"$vName"] ] && [ "${locks[l"$vName"]}" != "$tid" ]
+  }
   _tpubHostThread() {
     trap '' SIGINT
     trap '' SIGABRT
-    local fd1="$1" fd2="$2"
+    local fd1="$1" fd2="$2" lock
     IFS=''
-    while read -rN 1 lock <&"$fd1";do
-      # echo Server Check Lock
-      [ "$lock" == $'\n' ] && {
-        echo >&"$fd1"
-        sleep 0.02
-        continue
-      }
+    unset locks
+    local tid getTarget vName vType vVar mode suc curVar
+    declare -Ag locks
+    while _tpubReadLock "$fd1" $'\n';do
+      lock=h
       {
         read -rN 1 op
         case "$op" in
@@ -115,67 +153,179 @@
             read -rd ' ' tid
             read -rd ' ' getTarget
             read -rd $'\0' vName
-            declare -ng "curVar=tpubHostVar_$vName"
-            local res=
-            case "$getTarget" in
-              S) # There is a bug of bash itself so I cannot just use ${#curVar}
-                res="$curVar"
-                res="${#res}"
-                ;;
-              L) res="${#curVar[@]}" ;;
-              A)
-                IFS=' '
-                res="${curVar[*]}"
-                IFS='';;
-              K)
-                IFS=' '
-                res="${!curVar[*]}"
-                IFS='';;
-              *) res="$curVar" ;;
-            esac
-            echo -n "R$tid $res" >&"$fd2"
-            # echo  "R$tid $res" #DEV_OUTPUT_STREAM
-            echo -ne '\0' >&"$fd2"
-            # echo  '\0' #DEV_OUTPUT_STREAM
-            lock=$'\n';;
+            if _tpubHostCheckLock "$vName" "$tid"; then
+              # Locked, wait
+              echo -n "W$tid" >&"$fd2"
+              echo -ne '\0' >&"$fd2"
+            else
+              declare -n "curVar=tpubHostVar_$vName"
+              local res=
+              case "$getTarget" in
+                S) # There is a bug of bash itself so I cannot just use ${#curVar}
+                  res="$curVar"
+                  res="${#res}"
+                  ;;
+                L) res="${#curVar[@]}" ;;
+                A)
+                  IFS=' '
+                  res="${curVar[*]}"
+                  IFS='';;
+                K)
+                  IFS=' '
+                  res="${!curVar[*]}"
+                  IFS='';;
+                *) res="$curVar" ;;
+              esac
+              echo -n "R$tid $res" >&"$fd2"
+              echo -ne '\0' >&"$fd2"
+            fi
+            lock=$'\n'
+            ;;
           S)
             read -rd ' ' tid
             read -rd $'\0' vName
             read -rd ' ' vType
             read -rd $'\0' vVar
-            declare -ng "curVar=tpubHostVar_$vName"
-            case "$vType" in
-              v) curVar="$vVar";;
-              a)
-                declare -ag "tpubHostVar_$vName"'=()'
-                curVar[0]="$vVar";;
-              A)
-                declare -Ag "tpubHostVar_$vName"'=()';;
-              U)
-                unset "tpubHostVar_$vName";;
-            esac
-            # echo  "Host: $vName set to $vType $curVar" #DEV_OUTPUT_STREAM
-            echo -n "r$tid" >&"$fd2"
-            # echo  "r$tid" #DEV_OUTPUT_STREAM
-            echo -ne '\0' >&"$fd2"
-            # echo  '\0' #DEV_OUTPUT_STREAM
-            lock=$'\n';;
+            if _tpubHostCheckLock "$vName" "$tid"; then
+              # Locked, wait
+              echo -n "W$tid" >&"$fd2"
+              echo -ne '\0' >&"$fd2"
+            else
+              declare -n "curVar=tpubHostVar_$vName"
+              case "$vType" in
+                v) curVar="$vVar";;
+                a)
+                  declare -a "tpubHostVar_$vName"'=()'
+                  curVar[0]="$vVar";;
+                A)
+                  declare -A "tpubHostVar_$vName"'=()';;
+                U)
+                  unset "tpubHostVar_$vName";;
+              esac
+              echo -n "r$tid" >&"$fd2"
+              echo -ne '\0' >&"$fd2"
+            fi
+            lock=$'\n'
+            ;;
+          l)
+            read -rd ' ' tid
+            read -rd ' ' mode
+            read -rd $'\0' vName
+            if _tpubHostCheckLock "$vName" "$tid"; then
+              # Locked, wait
+              echo -n "W$tid" >&"$fd2"
+              echo -ne '\0' >&"$fd2"
+            else
+              suc='-'
+              if [ -v locks[l"$vName"] ]; then
+                [ "$mode" == U ] && {
+                  unset locks[l"$vName"]
+                  suc='+'
+                }
+              else
+                [ "$mode" == L ] && {
+                  locks[l"$vName"]="$tid"
+                  suc='+'
+                }
+              fi
+              echo -n "L$tid $suc" >&"$fd2"
+              echo -ne '\0' >&"$fd2"
+            fi
+            lock=$'\n'
+            ;;
           Q)
             echo -ne 'Q\0' >&"$fd2"
-            # echo  'Q\0' #DEV_OUTPUT_STREAM
             echo A >&"$fd1"
             exit 0;;
-          *)
-            read -rd $'\0' cl
-            echo -n "$op$cl" >&"$fd2"
-            # echo  "$op$cl" #DEV_OUTPUT_STREAM
-            echo -ne '\0' >&"$fd2"
-            # echo  '\0' #DEV_OUTPUT_STREAM;;
+          *) _tpubIgnore "$fd2" "$op";;
         esac
       } <&"$fd2"
       echo -n "$lock" >&"$fd1"
-      # echo '[LOCK]' -n "$lock" #DEV_OUTPUT_STREAM
     done
+  }
+  ## _tpubProcessWait <lockFd> <dataFd> <lock>
+  #  IFS='' is required
+  _tpubProcessWait() {
+    local fd1="$1" fd2="$2" lock="$3" tid
+    
+    read -rd $'\0' tid <&"$fd2"
+    if [ "$tid" == "$BASHPID" ]; then
+      sleep 0.05
+      return 1
+    else
+      echo -n "W$tid" >&"$fd2"
+      echo -ne "\0" >&"$fd2"
+      return 0
+    fi
+  }
+  ## tpubGetAs <resultVar> <container> <var> [<type>]
+  #  @arg 1 - result var name
+  #  @arg 2 - container name, like `main`
+  #  @arg 3 - var name
+  #  @arg 4 - (Optional, default: '')get type, S for size(${#a}), L for length(${#a[@]}), (EMPTY) for value($a)
+  #  Get the thread public var, and put to a regular thread-own resultVar
+  #  Note:
+  #    If type(arg 4) is `A` or `N`, you will still get a string of the result,
+  #    and this is an illegal operation and will be implemented and change its behavior.
+  #  @return 0 when success
+  #  @return 1 illegal arguments
+  #  @return 2 if the container does not exist
+  tpubGetAs() {
+    # Parse Arguments
+    local varToSet="$1"
+    shift || return 1
+    local fd1="${tpubMapFd1["f$1"]}"
+    [ "$fd1" ] || return 2
+    local fd2="${tpubMapFd2["f$1"]}"
+    local var="$2" type="$3"
+    [[ "$3" =~ ' ' ]] && return 1
+    # Send Request
+    local lIFS="$IFS" resend=0
+    IFS=''
+    while :;do
+      resend=0
+      _tpubReadLock "$fd1" h || return 2
+      echo -n "G$BASHPID $type $var" >&"$fd2"
+      echo -ne '\0' >&"$fd2"
+      echo -n h >&"$fd1"
+      # Wait for Response
+      local tid= res= cl= op= lock=$'\n'
+      while read -rN 1 lock <&"$fd1";do
+        {
+          read -rN 1 op
+          case "$op" in
+            R)
+              read -rd ' ' tid
+              read -rd $'\0' res
+              [ "$tid" == "$BASHPID" ] && {
+                echo -n "$lock" >&"$fd1"
+                declare -n "resVar=$varToSet"
+                resVar="$res"
+                IFS="$lIFS"
+                return 0
+                true
+              } || {
+                echo -n "R$tid $res" >&"$fd2"
+                echo -ne '\0' >&"$fd2"
+              };;
+            Q)
+              echo -ne 'Q\0' >&"$fd2"
+              echo -n A >&"$fd1"
+              IFS="$lIFS"
+              tpubRelease "$1"
+              return 2;;
+            W) _tpubProcessWait "$fd1" "$fd2" "$lock" || resend=1 ;;
+            *) _tpubIgnore "$fd2" "$op";;
+          esac
+        } <&"$fd2"
+        echo -n "$lock" >&"$fd1"
+        [ "$resend" == 1 ] && break
+      done
+      [ "$resend" == 1 ] && continue
+      break
+    done
+    IFS="$lIFS"
+    return 2
   }
   ## tpubGet <container> <var> [<type>]
   #  @arg 1 - container name, like `main`
@@ -185,82 +335,14 @@
   #  @return 0 when success
   #  @return 1 illegal arguments
   #  @return 2 if the container does not exist
+  #  @return 3 if some silly thing readonly'd the internal `__tpub__Result`
   tpubGet() {
-    local fd1="${tpubMapFd1["f$1"]}"
-    [ "$fd1" ] || return 2
-    local fd2="${tpubMapFd2["f$1"]}"
-    local var="$2" type="$3"
-    [[ "$3" =~ ' ' ]] && return 1
-    local lock=
-    while read -rN 1 lock <&"$fd1";do
-      [ "$lock" != h ] && break
-      echo -n h >&"$fd1"
-      # echo '[LOCK]' -n h #DEV_OUTPUT_STREAM
-      sleep 0.05
-      continue
-    done
-    echo -n "G$BASHPID $type $var" >&"$fd2"
-    # echo  "G$BASHPID $type $var" #DEV_OUTPUT_STREAM
-    echo -ne '\0' >&"$fd2"
-    # echo  '\0' #DEV_OUTPUT_STREAM
-    echo -n h >&"$fd1"
-    # echo '[LOCK]' -n h #DEV_OUTPUT_STREAM
-    local tid= res= cl= op= lIFS="$IFS" lock=$'\n'
-    IFS=''
-    while read -rN 1 lock <&"$fd1";do
-      {
-        read -rN 1 op
-        case "$op" in
-          S)
-            read -rd $'\0' cl
-            echo -n "$op$cl" >&"$fd2"
-            # echo  "$op$cl" #DEV_OUTPUT_STREAM
-            echo -ne '\0' >&"$fd2"
-            # echo  '\0' #DEV_OUTPUT_STREAM
-            read -rd $'\0' cl
-            echo -n "$cl" >&"$fd2"
-            # echo  "$cl" #DEV_OUTPUT_STREAM
-            echo -ne '\0' >&"$fd2"
-            # echo  '\0' #DEV_OUTPUT_STREAM
-            ;;
-          R)
-            read -rd ' ' tid
-            read -rd $'\0' res
-            [ "$tid" == "$BASHPID" ] && {
-              echo -n "$lock" >&"$fd1"
-              # echo '[LOCK]' -n "$lock" #DEV_OUTPUT_STREAM
-              echo -n "$res"
-              IFS="$lIFS"
-              return 0
-              true
-            } || {
-              echo -n "R$tid $res" >&"$fd2"
-              # echo  "R$tid $res" #DEV_OUTPUT_STREAM
-              echo -ne '\0' >&"$fd2"
-              # echo  '\0' #DEV_OUTPUT_STREAM
-            };;
-          Q)
-            echo -ne 'Q\0' >&"$fd2"
-            # echo  'Q\0' #DEV_OUTPUT_STREAM
-            echo -n A >&"$fd1"
-            # echo '[LOCK]' -n h #DEV_OUTPUT_STREAM
-            IFS="$lIFS"
-            tpubRelease "$1"
-            return 2;;
-          *)
-            read -rd $'\0' cl
-            echo -n "$op$cl" >&"$fd2"
-            # echo  "$op$cl" #DEV_OUTPUT_STREAM
-            echo -ne '\0' >&"$fd2"
-            # echo  '\0' #DEV_OUTPUT_STREAM
-            ;;
-        esac
-      } <&"$fd2"
-      echo -n "$lock" >&"$fd1"
-      # echo '[LOCK]' -n "$lock" #DEV_OUTPUT_STREAM
-    done
-    IFS="$lIFS"
-    return 2
+    unset __tpub__Result || return 3
+    local __tpub__Result=
+    tpubGetAs __tpub__Result "$@"
+    local rv="$?" 
+    echo -n "$__tpub__Result"
+    return $rv
   }
   ## tpubSet <container> <var> <val> [<type>]
   #  @arg 1 - container name, like `main`
@@ -272,82 +354,140 @@
   #  @return 1 illegal arguments
   #  @return 2 if the container does not exist
   tpubSet()  {
+    # Parse Arguments
     local fd1="${tpubMapFd1["f$1"]}"
     [ "$fd1" ] || return 2
     local fd2="${tpubMapFd2["f$1"]}"
     local var="$2" value="$3" type="${4-v}"
     [[ "$type" != [vaAU] ]] && return 1
-    local lock=
-    while read -rN 1 lock <&"$fd1";do
-      [ "$lock" != h ] && break
-      echo -n h >&"$fd1"
-      # echo '[LOCK]' -n h #DEV_OUTPUT_STREAM
-      sleep 0.05
-      continue
-    done
-    echo -n "S$BASHPID $var" >&"$fd2"
-    # echo  "S$BASHPID $var" #DEV_OUTPUT_STREAM
-    echo -ne '\0' >&"$fd2"
-    # echo  '\0' #DEV_OUTPUT_STREAM
-    echo -n "$type $value" >&"$fd2"
-    # echo  "$type $value" #DEV_OUTPUT_STREAM
-    echo -ne '\0' >&"$fd2"
-    # echo  '\0' #DEV_OUTPUT_STREAM
-    echo -n h >&"$fd1"
-    # echo '[LOCK]' -n h #DEV_OUTPUT_STREAM
-    local tid= res= cl= op= lIFS="$IFS" lock=$'\n'
+    # Send Request
+    local lIFS="$IFS" resend=0
     IFS=''
-    while read -rN 1 lock <&"$fd1";do
-      {
-        read -rN 1 op
-        case "$op" in
-          S)
-            read -rd $'\0' cl
-            echo -n "$op$cl" >&"$fd2"
-            # echo  "$op$cl" #DEV_OUTPUT_STREAM
-            echo -ne '\0' >&"$fd2"
-            # echo  '\0' #DEV_OUTPUT_STREAM
-            read -rd $'\0' cl
-            echo -n "$cl" >&"$fd2"
-            # echo  "$cl" #DEV_OUTPUT_STREAM
-            echo -ne '\0' >&"$fd2"
-            # echo  '\0' #DEV_OUTPUT_STREAM
-            ;;
-          Q)
-            echo -ne 'Q\0' >&"$fd2"
-            # echo  'Q\0' #DEV_OUTPUT_STREAM
-            echo -n A >&"$fd1"
-            # echo '[LOCK]' -n h #DEV_OUTPUT_STREAM
-            IFS="$lIFS"
-            tpubRelease "$1"
-            return 2;;
-          r)
-            read -rd $'\0' tid
-            [ "$tid" == "$BASHPID" ] && {
-              echo -n "$lock" >&"$fd1"
-              # echo '[LOCK]' -n "$lock" #DEV_OUTPUT_STREAM
+    while :;do
+      resend=0
+      _tpubReadLock "$fd1" h || return 2
+      echo -n "S$BASHPID $var" >&"$fd2"
+      echo -ne '\0' >&"$fd2"
+      echo -n "$type $value" >&"$fd2"
+      echo -ne '\0' >&"$fd2"
+      echo -n h >&"$fd1"
+      # Wait for Response
+      local tid= res= cl= op= lock=$'\n'
+      while read -rN 1 lock <&"$fd1";do
+        {
+          read -rN 1 op
+          case "$op" in
+            Q)
+              echo -ne 'Q\0' >&"$fd2"
+              echo -n A >&"$fd1"
               IFS="$lIFS"
-              return 0
-            } || {
-              echo -n "r$tid" >&"$fd2"
-              # echo  "r$tid" #DEV_OUTPUT_STREAM
-              echo -ne '\0' >&"$fd2"
-              # echo  '\0' #DEV_OUTPUT_STREAM
-            };;
-          *)
-            read -rd $'\0' cl
-            echo -n "$op$cl" >&"$fd2"
-            # echo  "$op$cl" #DEV_OUTPUT_STREAM
-            echo -ne '\0' >&"$fd2"
-            # echo  '\0' #DEV_OUTPUT_STREAM
-            ;;
-        esac
-      } <&"$fd2"
-      echo -n "$lock" >&"$fd1"
-      # echo '[LOCK]' -n "$lock" #DEV_OUTPUT_STREAM
+              tpubRelease "$1"
+              return 2;;
+            r)
+              read -rd $'\0' tid
+              [ "$tid" == "$BASHPID" ] && {
+                echo -n "$lock" >&"$fd1"
+                IFS="$lIFS"
+                return 0
+              } || {
+                echo -n "r$tid" >&"$fd2"
+                echo -ne '\0' >&"$fd2"
+              };;
+            W) _tpubProcessWait "$fd1" "$fd2" "$lock" || resend=1 ;;
+            *) _tpubIgnore "$fd2" "$op";;
+          esac
+        } <&"$fd2"
+        echo -n "$lock" >&"$fd1"
+        [ "$resend" == 1 ] && break
+      done
+      [ "$resend" == 1 ] && continue
+      break
     done
     IFS="$lIFS"
     return 2
+  }
+  # _tpubLock <mode> <container> [<var>] 
+  _tpubLock() {
+    # Parse Arguments
+    local mode="$1"
+    local fd1="${tpubMapFd1["f$2"]}"
+    [ "$fd1" ] || return 2
+    local fd2="${tpubMapFd2["f$2"]}"
+    # Send Request
+    local lIFS="$IFS" resend=0
+    IFS=''
+    while :;do
+      resend=
+      _tpubReadLock "$fd1" h || return 2
+      echo -n "l$BASHPID $mode " >&"$fd2"
+      local var="$3"
+      [ -z "$var" ] && return 1
+      [[ "$var" =~ ['[]'] ]] && return 1
+      echo -n "$var" >&"$fd2"
+      echo -ne '\0' >&"$fd2"
+      echo -n h >&"$fd1"
+      # Wait for Response
+      # Return 1 on illegal args, 2 on container not exist, 3 on fail to (un)lock
+      local tid= res= cl= op= lock=$'\n'
+      while read -rN 1 lock <&"$fd1";do
+        {
+          read -rN 1 op
+          case "$op" in
+            L)
+              read -rd ' ' tid
+              read -rd $'\0' suc
+              [ "$tid" == "$BASHPID" ] && {
+                echo -n "$lock" >&"$fd1"
+                IFS="$lIFS"
+                [ "$suc" == '+' ] && return 0
+                return 3
+                true
+              } || {
+                echo -n "L$tid $suc" >&"$fd2"
+                echo -ne '\0' >&"$fd2"
+              };;
+            Q)
+              echo -ne 'Q\0' >&"$fd2"
+              echo -n A >&"$fd1"
+              IFS="$lIFS"
+              tpubRelease "$1"
+              return 2;;
+            W) _tpubProcessWait "$fd1" "$fd2" "$lock" || resend=1 ;;
+            *) _tpubIgnore "$fd2" "$op";;
+          esac
+        } <&"$fd2"
+        echo -n "$lock" >&"$fd1"
+        [ "$resend" == 1 ] && break
+      done
+      [ "$resend" == 1 ] && continue
+      break
+    done
+    IFS="$lIFS"
+    return 2
+  }
+  #  tpubLock <container> <var>
+  #  Lock a variable of a container
+  #
+  #  When locked, only the host thread and the lock owner can access the container
+  #  Must have a tpubUnlock after this in the same thread to release the lock!
+  #  @return 0 when success
+  #  @return 1 illegal arguments
+  #  @return 2 if the container does not exist
+  #  @return 3 if it failed to lock(already locked)
+  tpubLock() {
+    _tpubLock L "$@"
+  }
+  #  tpubUnlock <container> <var>
+  #  Unlock a variable of a container
+  #
+  #  When locked, only the host thread and the lock owner can access the container
+  #  Must do this after tpubLock in the same thread to release the lock!
+  #  @return 0 when success
+  #  @return 1 illegal arguments
+  #  @return 2 if the container does not exist
+  #  @return 3 if it failed to lock(already locked)
+  tpubUnlock() {
+    _tpubLock U "$@"
   }
   ## tpubExp <container> <expr> [expr ...]
   #  Expression-style interface for thread-public variables.
@@ -543,8 +683,7 @@
                 tpubGet "$container" "$var" A || return $?
                 ;;
               *)
-                val="$(tpubGet "$container" "$var[$idx]")" || return $?
-                echo -n "$val"
+                tpubGet "$container" "$var[$idx]" || return $?
                 ;;
             esac
           else

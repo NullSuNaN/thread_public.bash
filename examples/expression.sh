@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/usr/bin/env bash
 
 dir="${0%/*}"
 [ "$dir" ] || {

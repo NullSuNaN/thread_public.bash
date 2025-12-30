@@ -16,10 +16,11 @@ tasks=()
 for i in {1..5}; do
   (
     echo "TASK $i"
-    # no lock between get and set, so the result may not be exact 5
-    val="`tpubGet main counter`"
-    # tpubGet main counter
+    tpubLock main counter
+    tpubGetAs val main counter
     tpubSet main counter "$((val + 1))"
+    tpubUnlock main counter
+    echo "TASK $i END"
   ) &
   tasks[${#tasks[@]}]="$!"
 done

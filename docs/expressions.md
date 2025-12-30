@@ -1,5 +1,5 @@
 # `tpubExp <container> <expr>...`
-[Return To Readme](.)
+[Return To Readme](..)
 
 Evaluate a sequence of **expressions** against a thread-public container.
 
@@ -92,12 +92,12 @@ tpubSet <container> name value
 * The **first `=`** splits name and value
 * Produces **no output**
 
----
-
 ⚠️ **Important warning**
 
 Make sure the whole var name don't contain a `=` when using the SET expression,
 a `=` can be contained by a map key(`var[sth=sth]=sth`)!
+
+---
 
 ### Array creation
 
