@@ -185,6 +185,8 @@ The following expressions are **preserved** and you should not use them:
 ^[$@]\{.*\[.*\].+\}$
 # Preserved for special operations:
 ^!(.?[^!])*$
+# Preserved for Calculations:
+(^[@$]?\(\($)|(^\)\)$)
 ```
 
 ### Example

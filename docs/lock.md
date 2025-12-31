@@ -40,7 +40,7 @@ tpubUnlock main counter
 * Releases a lock acquired by `tpubLock`
 * Must be called in the **same thread** after `tpubLock`
 * Unlocking from a different thread is illegal
-* * this will freeze the thread, and will change its behavior
+* * this will freeze the thread, and will change its behavior in later updates
 
 ### Returns
 
