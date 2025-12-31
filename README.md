@@ -12,7 +12,7 @@ This allows multiple Bash threads(background jobs / subshells) to safely **share
 
 * Thread-safe shared variables in pure Bash
 * Supports Scalars, Arrays and Associative arrays (maps).
-* No external dependencies (uses `mkfifo`, file descriptors)
+* No external dependencies (uses `mkfifo`, `sleep`, file descriptors)
 * Deterministic locking (single host thread)
 * Works across subshells and background jobs
 
@@ -108,7 +108,6 @@ tpubReleaseAll
 
 ## Implementation Notes
 
-* Uses `mkfifo` + bidirectional FD reopening
 * Compatible with Bash 5+
 * **DO NOT** do any of the following things:
 ```bash
