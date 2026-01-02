@@ -1,5 +1,5 @@
 # Get Operations
-[Return To Readme](..)
+[Return To Readme](..#operations)
 
 ## `tpubGetAs <resultVar> <container> <var> [type]`
 

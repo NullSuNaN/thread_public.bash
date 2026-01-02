@@ -111,6 +111,13 @@ tpubReleaseAll
 * Compatible with Bash 5+
 * **DO NOT** do any of the following things:
 ```bash
-readonly locks curVar tpubMapFd1 tpubMapFd2 __tpub__Result
-THREAD_PUBLIC_INCLUDED=anything
+readonly locks curVar tpubMapFd1 tpubMapFd2 IFS
+readonly fd1 fd2 name tmpf fd i op cl lt lock vName tid getTarget vName vType vVar mode suc curVar res varToSet var type value mode lIFS resend rv __tpub__Result
+readonly container argc arg exp idx val in_array array_idx array_var
+THREAD_PUBLIC_INCLUDED=anything BASHPID=anything
+unset BASHPID
 ```
+
+---
+
+[Return To The Top](#readme-ov-file)

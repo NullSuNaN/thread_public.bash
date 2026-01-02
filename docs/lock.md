@@ -1,5 +1,5 @@
 # Lock Operations
-[Return To Readme](..)
+[Return To Readme](..#operations)
 
 ## `tpubLock <container> <var>`
 

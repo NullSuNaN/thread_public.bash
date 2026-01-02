@@ -1,5 +1,5 @@
 # `tpubExp <container> <expr>...`
-[Return To Readme](..)
+[Return To Readme](..#expressions)
 
 Evaluate a sequence of **expressions** against a thread-public container.
 

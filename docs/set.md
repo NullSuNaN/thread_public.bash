@@ -1,5 +1,5 @@
 # Set Operations
-[Return To Readme](..)
+[Return To Readme](..#operations)
 
 ## `tpubSet <container> <var> <value> [type]`
 

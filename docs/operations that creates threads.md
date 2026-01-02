@@ -1,5 +1,5 @@
 ## Operations that **spawn a new Bash process / subshell**
-[Return To Readme](..)
+[Return To Readme](..#operations)
 
 ### 1. **Command substitution** ❗ (most dangerous)
 
@@ -27,7 +27,7 @@ command1 | command2 | command3
 
 Creates:
 
-* **All the command is a new subshell**
+* **Every command is a new subshell**
 * Each side runs concurrently
 
 Even this:
